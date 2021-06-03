@@ -1,0 +1,833 @@
+################# Bash code #####################################
+#
+#!/bin/bash
+#
+#SBATCH --job-name=SM_rnaseq_4_16_21
+#SBATCH --ntasks=40   
+#SBATCH --nodelist=compute002
+#SBATCH --time=240:00:00
+#SBATCH --mem=150gb
+#SBATCH --output=/data/smokash/log_rnaseq56hav_4_16_21/output_%j.txt
+#SBATCH --mail-type=all
+#SBATCH --mail-user=smokash@clemson.edu
+
+################################################################
+
+# Code by: Vijay Shankar Copyright 2020
+# Initial publication date: 02/10/2020
+# Edited/formatted by: Maria E. Adonay for clarity/readability
+# Edited by Sneha Mokashi for this dataset
+# Last edited: 04/16/2021
+
+################################################################
+### INSTRUCTIONS ###############################################
+################################################################
+#
+##########Instructions for beginners: Things you need to modify in this code:
+# 1.The text after the = in the header section i.e. the beginning of the code..
+#      jobname... your choice
+#      output... change folder to your data/username/log folder. Use mkdir to make a 
+#      log folder beforehand
+# 
+# 2. Its best to use TextWrangler to edit this code- you can see everything color coded 
+#    if you save the file as .sh
+#
+# 3. Then go to the export RAW_dir shown in multicolor. RAW_dir implies the input folder 
+#    containing the FASTQ files. Put in the filepath as needed. 
+#    You dont need to mkdir the WORD_dir
+#
+# 4. Dont touch anything else in this code.
+#
+# 5. After you login to secretariat go to your data/username folder and type 
+#    nano rnaseqcode_4_16_21.sh
+#
+# 6. In the nano part copy paste the entire text of this script Command+A Cmd+C Cmd=V; 
+#    then Exit by Ctrl+X
+#
+# 7. After exiting type sbatch rnaseqcode_4_16_21.sh and hit Enter. The script should start running. 
+#    Check progress using squeue
+#
+# 1. Copy this template to your project directory
+#
+#	Here is an example command:
+#	cp /opt/ohpc/pub/scripts/script.sh /data/smokash/
+#
+#	Where "username" is replaced with your username
+#
+#	Note: Do not make your project directory in your /home
+#	directory -- instead, make it in your /data directory
+#
+#	If you do not have a folder in the /data directory,
+#	execute the following commands:
+#	cd /data
+#	mkdir smokash
+#
+# 2. Change the following SBATCH parameters for your project
+#
+#	--job-name	: Name your job
+#	--nodelist	: Pick compute node between 001-004
+#	--output	: Specify path for output file
+#	--error		: Specify path for error file
+#	--mail-user	: List your email address for updates
+#
+#	Note: Change these parameters in the #SBATCH header,
+#	above; Only edit content after the "=" symbol
+#
+# 	For --output, here is an example path:
+#	/data/username/rnaseq_analysis/output_%j.txt
+#
+#	Do not delete the "%j" -- this will attach the job
+#	number to your files; Slurm assigns this number once
+#	you submit your script
+#
+# 3. Set the following as your project-specific directories
+#
+
+export RAW_DIR="/data/smokash/rnaseq_full_56hav"
+export WORK_DIR="/data/smokash/wk_dir_rnaseq56hav_4_16_21"
+#
+# 	Note: Leave the quotations around the directories; Do
+#	not place a '/' at the end of the directories
+#
+# 4. Decide if you would like to remove intermediate files
+#
+export RM_DIR="T"
+#
+#	Note: Please set as either a capital "T" or "F"; Leave
+#	the quotations around the "T" or "F"
+#
+#	When this variable is set to "T", the intermediate BAM 
+#	and SAM files will be removed upon successful creation 
+#	of a non-empty combined_counts.txt file; When the
+#	variable is not set to "T", all of the intermediate
+#	files will be retained
+#
+#	It is useful to retain these files (RM_DIR="F") if the
+#	script does not complete correctly: They may be useful
+#	for troubleshooting
+#
+# 5. Run the script from the command line
+#
+#	Example command: sbatch script.sh
+
+################################################################
+### MAIN SCRIPT ################################################
+################################################################
+
+# Directory prep
+mkdir ${WORK_DIR}
+cd ${RAW_DIR}
+
+# Variable prep + formatting
+export PAD_HASH=$(head -c 50 /dev/zero | tr '\0' '#')
+export PAD_DASH=$(head -c 50 /dev/zero | tr '\0' '-')
+export INDENT=5
+
+# Output title
+printf "\n%s%s\n" "#" ${PAD_HASH}; txt="RNA-SEQ PIPELINE || BY: VIJAY SHANKAR"; printf "%s %s" "$txt" "${PAD_HASH:${#txt}}"; printf "\n%s%s\n" "#" ${PAD_HASH}
+
+# Progress report + start global timer
+now=$(date); printf "\n%s%s\n" "#" ${PAD_HASH}; txt="INITAL Start: ${now}"; printf "%s %s" "$txt" "${PAD_HASH:${#txt}}"; printf "\n%s%s\n" "#" ${PAD_HASH}
+
+################################################################
+### Merge lanes #
+### ########### #
+
+# Progress report + start timer
+printf "\n%s%s\n" "-" ${PAD_DASH}; txt="--- Step 0/9: Merging lanes."; printf "%s %s\n\n" "$txt" "${PAD_DASH:${#txt}}"
+now=$(date); printf "%${INDENT}s%s\n\n" '' "+ Start: $now"
+
+# Script
+/opt/ohpc/pub/Software/merge_lanes.sh \
+-o ${WORK_DIR}/0_lane_merged/
+
+# Stop timer
+now=$(date); printf "\n%${INDENT}s%s\n" '' "+ End: $now"
+printf "%${INDENT}s%s\n" '' "+ Done merging lanes."
+
+# Software / directory prep
+module load afterqc/0.9.7
+cd ${WORK_DIR}/0_lane_merged
+
+################################################################
+### QC #
+### ## #
+
+# Progress report + start timer + directory prep
+printf "\n%s%s\n" "-" ${PAD_DASH}; txt="--- Step 1/9: Performing QC processing."; printf "%s %s\n\n" "$txt" "${PAD_DASH:${#txt}}"
+now=$(date); printf "%${INDENT}s%s\n\n" '' "+ Start: $now"
+mkdir ${WORK_DIR}/1_afterqc
+
+# AfterQC
+after.py \
+-g ${WORK_DIR}/1_afterqc/pass \
+-b ${WORK_DIR}/1_afterqc/fail \
+-r ${WORK_DIR}/1_afterqc/QC
+
+# Software prep + stop timer
+module unload afterqc/0.9.7
+now=$(date); printf "\n%${INDENT}s%s\n" '' "+ End: $now"
+printf "%${INDENT}s%s\n" '' "+ Done performing QC processing."
+
+################################################################
+### Filter for rRNA #
+### ############### #
+
+# Progress report + start timer + software / directory prep
+printf "\n%s%s\n" "-" ${PAD_DASH}; txt="--- Step 2/9: Filtering for rRNA."; printf "%s %s\n\n" "$txt" "${PAD_DASH:${#txt}}"
+now=$(date); printf "%${INDENT}s%s\n\n" '' "+ Start: $now"
+module load java_jdk/1.8.231
+module load bbmap/38.73
+cd ${WORK_DIR}/1_afterqc/pass
+
+####################################
+# Note: ONLY FOR FORWARD FRAGMENTS #
+#                                  #
+# This is just to get some         #
+# statistics on depletion. The     #
+# multimapping rRNA  fragments are #
+# not used for gene count          #
+# calculation to begin with in     #
+# featurecounts.                   #
+####################################
+
+for f in *_R1_001.good.fq.gz;
+do
+	# BBDuk
+	bbduk.sh \
+	in=$f \
+	outm=$f.rRNA.fq \
+	outu=$f.nonrRNA.fq \
+	k=31 \
+	ref=/opt/ohpc/pub/Databases/rRNA_SILVA/ribokmers.fa ;
+done;
+
+# Software prep + stop timer
+module unload java_jdk/1.8.231
+module unload bbmap/38.73
+now=$(date); printf "\n%${INDENT}s%s\n" '' "+ End: $now"
+printf "%${INDENT}s%s\n" '' "+ Done filtering for rRNA."
+
+################################################################
+### Align #
+### ##### #
+
+# Progress report + start timer + software / directory prep
+printf "\n%s%s\n" "-" ${PAD_DASH}; txt="--- Step 3/9: Aligning using GMAP-GSNAP."; printf "%s %s\n\n" "$txt" "${PAD_DASH:${#txt}}"
+now=$(date); printf "%${INDENT}s%s\n\n" '' "+ Start: $now"
+module load samtools/1.10 
+module load gmap_gsnap/2019.09.12
+mkdir ${WORK_DIR}/2_gsnap
+mkdir ${WORK_DIR}/2_gsnap/SAM
+mkdir ${WORK_DIR}/2_gsnap/BAM
+mkdir ${WORK_DIR}/2_gsnap/SORTED_BAM
+
+for f in *_R1_001.good.fq.gz;
+do
+	# Create R2 filename
+	R2="$(echo $f | sed -e 's/R1/R2/')" ;
+
+	# Create SAM filename	
+	SAM_NAME="$(echo $f | sed -e 's/_R1_001.good.fq.gz/.sam/')" ;
+	
+	# GSnap
+	gsnap \
+	--gunzip \
+	-D /opt/ohpc/pub/Databases/D_mel/D_mel_6.13_NCBI/indexed/gmap_gsnap/ \
+	-d D_mel_6.13 \
+	$f \
+	$R2 \
+	-t 40 \
+	-N 1 \
+	--orientation=RF \
+	-A sam \
+	-o ${WORK_DIR}/2_gsnap/SAM/$SAM_NAME ;
+done;
+
+# Software prep + stop timer
+module unload samtools/1.10 
+module unload gmap_gsnap/2019.09.12
+now=$(date); printf "\n%${INDENT}s%s\n" '' "+ End: $now"
+printf "%${INDENT}s%s\n" '' "+ Done aligning using GMAP-GSNAP."
+
+################################################################
+### SAM --> BAM #
+### ########### #
+
+# Progress report + start timer + software / directory prep
+printf "\n%s%s\n" "-" ${PAD_DASH}; txt="--- Step 4/9: Converting SAM to BAM."; printf "%s %s\n\n" "$txt" "${PAD_DASH:${#txt}}"
+now=$(date); printf "%${INDENT}s%s\n" '' "+ Start: $now"
+module load samtools/1.10 
+cd /${WORK_DIR}/2_gsnap/SAM
+
+for f in *.sam;
+do
+	# Create BAM filename
+	BAM_NAME="$(echo $f |sed -e 's/sam/bam/')" ;
+
+	# Samtools : VIEW
+	samtools view \
+	-Sb \
+	$f \
+	> ${WORK_DIR}/2_gsnap/BAM/$BAM_NAME ;
+done;
+
+# Software prep + progress report + stop timer
+module unload samtools/1.10 
+now=$(date); printf "%${INDENT}s%s\n" '' "+ End: $now"
+printf "%${INDENT}s%s\n" '' "+ Done converting SAM to BAM."
+
+################################################################
+### Sort BAM #
+### ######## #
+
+# Progress report + start timer + software / directory prep
+printf "\n%s%s\n" "-" ${PAD_DASH}; txt="--- Step 5/9: Sorting BAM."; printf "%s %s\n\n" "$txt" "${PAD_DASH:${#txt}}"
+now=$(date); printf "%${INDENT}s%s\n\n" '' "+ Start: $now"
+module load samtools/1.10 
+cd ${WORK_DIR}/2_gsnap/BAM
+
+for f in *.bam;
+do
+	# Create sorted BAM filename
+	SORTED_NAME="$(echo $f |sed -e 's/.bam/_sorted.bam/')" ;
+
+	# Samtools : SORT
+	samtools sort \
+	-o ${WORK_DIR}/2_gsnap/SORTED_BAM/$SORTED_NAME \
+	-@ 40 \
+	$f ;
+
+done;
+
+# Software prep + progress report + stop timer
+module unload samtools/1.10 
+now=$(date); printf "\n%${INDENT}s%s\n" '' "+ End: $now"
+printf "%${INDENT}s%s\n" '' "+ Done sorting BAM."
+
+################################################################
+### Index sorted BAM #
+### ################ #
+
+# Progress report + start timer + software / directory prep
+printf "\n%s%s\n" "-" ${PAD_DASH}; txt="--- Step 6/9: Indexing sorted BAM."; printf "%s %s\n\n" "$txt" "${PAD_DASH:${#txt}}"
+now=$(date); printf "%${INDENT}s%s\n" '' "+ Start: $now"
+module load samtools/1.10 
+cd ${WORK_DIR}/2_gsnap/SORTED_BAM
+
+for f in *_sorted.bam;
+do
+	# Samtools : INDEX	
+	samtools index \
+	$f ;
+done;
+
+# Software prep + progress report + stop timer
+module unload samtools/1.10 
+now=$(date); printf "%${INDENT}s%s\n" '' "+ End: $now"
+printf "%${INDENT}s%s\n" '' "+ Done indexing sorted BAM."
+
+################################################################
+### Count reads to exons #
+### #################### #
+
+# Progress report + start timer + software / directory prep
+printf "\n%s%s\n" "-" ${PAD_DASH}; txt="--- Step 7/9: Running featureCounts."; printf "%s %s\n\n" "$txt" "${PAD_DASH:${#txt}}"
+now=$(date); printf "%${INDENT}s%s\n\n" '' "+ Start: $now"
+module load subread/1.6.4
+mkdir ${WORK_DIR}/3_featurecounts
+
+for f in *_sorted.bam;
+do
+	# featureCounts	
+	featureCounts \
+	-a /opt/ohpc/pub/Databases/D_mel/D_mel_6.13_NCBI/indexed/gmap_gsnap/D_mel_6.13/dmel-all-r6.13.gtf \
+	-t exon \
+	-F GTF \
+	-g gene_id \
+	-T 40 \
+	-s 0 \
+	-p \
+	-D 1200 \
+	-o ${WORK_DIR}/3_featurecounts/$f.counts.txt \
+	$f ;
+done;
+
+# Software prep + progress report + stop timer
+module unload subread/1.6.4
+now=$(date); printf "\n%${INDENT}s%s\n" '' "+ End: $now"
+printf "%${INDENT}s%s\n" '' "+ Done running featureCounts."
+
+################################################################
+### Combine counts from multiple files into a cumulative file #
+### ######################################################### #
+
+# Progress report + start timer
+printf "\n%s%s\n" "-" ${PAD_DASH}; txt="--- Step 8/9: Formatting files."; printf "%s %s\n\n" "$txt" "${PAD_DASH:${#txt}}"
+now=$(date); printf "%${INDENT}s%s\n" '' "+ Start: $now"
+
+# Directory prep; create file
+cd ${WORK_DIR}/3_featurecounts
+touch combined_counts.txt
+
+# Select a random file to extract first two metadata columns
+RAND_FILE=$(find . -type f -name "*.txt" | shuf -n 1)
+awk '{print $1 "\t" $6}' $RAND_FILE > combined_counts.txt
+
+for f in *.counts.txt;
+do
+	# Extract column and paste
+	awk '{print $7}' $f | paste combined_counts.txt - > test.txt ;
+	mv test.txt combined_counts.txt ;
+done;
+
+################################################################
+### Format cumulative file #
+### ###################### #
+
+# Remove first row - featureCount command call
+tail -n +2 combined_counts.txt > combined_counts_alt.txt
+
+# Remove temp file
+mv combined_counts_alt.txt combined_counts.txt
+
+# Stop timer
+now=$(date); printf "%${INDENT}s%s\n" '' "+ End: $now"
+printf "%${INDENT}s%s\n" '' "+ Done formatting files."
+
+################################################################
+### OPTIONAL: Clean up intermediate files #
+### ##################################### #
+
+# Wait until all previous processes have completed
+wait
+
+if [ ${RM_DIR} == "T" ];
+then
+	# Check if combined_counts.txt exists and is not empty
+	[ -s /data/madonay/RNASeq/vijay_pipeline/test6.02_MEA_RNASeq/3_featurecounts/combined_counts.txt ]
+
+	# $? expands to the exit status of the most recently executed foreground pipeline
+	if [ $? == 0 ]; 
+	then
+		# Progress report
+		printf "\n%s%s\n" "-" ${PAD_DASH}; txt="--- Step 9/9: Remove intermediate files."; printf "%s %s\n" "$txt" "${PAD_DASH:${#txt}}"
+        printf "%${INDENT}s%s\n" '' '' "  combined_counts.txt exists."
+		now=$(date); printf "%${INDENT}s%s\n" '' "+ Start: $now"
+		
+		# Remove SAM files
+		printf "%${INDENT}s%${INDENT}s%s\n" '' '' "* Removing intermediate SAM files."
+		rm -rf ${WORK_DIR}/2_gsnap/SAM/
+		
+		# Remove BAM files
+		printf "%${INDENT}s%${INDENT}s%s\n" '' '' "* Removing intermediate BAM files."
+		rm -rf ${WORK_DIR}/2_gsnap/BAM/
+		
+		# Stop timer + progress report
+		now=$(date); printf "%${INDENT}s%s\n" '' "+ End: $now"
+		printf "%${INDENT}s%s\n" '' "+ Done removing intermediate files; Continue to R section."
+	else
+		printf "\n%s\n" "Either combined_counts.txt does not exist or is empty."
+	fi;
+else
+	printf "\n%s\n" "Retaining intermediate files; Continue to R section."
+fi;
+
+# Stop global timer
+printf "\n%s%s\n" "#" ${PAD_HASH}; now=$(date); txt="FINAL End: ${now}"; printf "%s %s\n" "$txt" "${PAD_HASH:${#txt}}"; printf "%s%s\n\n" "#" ${PAD_HASH}
+
+###################################  End of bash steps  #############################
+
+
+#
+###################### R steps ########################################
+#
+# combined_counts_May_21_SM.txt to be used for the omnibus analysis 
+# R code for EdgeR
+# Run this code in small chunks. You need to make some edits to the code at several places.
+#
+library(edgeR)
+library(dplyr)
+library(ggplot2)
+# 
+combined_counts <- as.data.frame(combined_counts_May_21_SM)
+#
+# Adding rownames to combined_counts and renaming as Data
+#
+Data<-combined_counts
+Data<-Data[,-1]
+row.names(Data)<-combined_counts[,1]
+#Remove the length column from Data and call it Datawolength
+Datawolength<-Data[,-1]
+#
+#
+#SM version filtering. Input is the combined_counts file from secretariat
+#
+#Data dataframe filtered by Median count>2
+#
+library(matrixStats)
+Datamatrix<-data.matrix(Datawolength)
+Medians<-rowMedians(Datamatrix)
+Medians<-data.frame(Medians)
+row.names(Medians)<-row.names(Datawolength)
+DatacbindMedian<-cbind(Datawolength,Medians)
+filterMedian<-filter(DatacbindMedian,Medians>=2)
+filterMedian<-subset(filterMedian,select=-c(Medians))
+#
+#Second filter is proportion of non zero samples. takes input from first filter.
+#
+##### you need to change the numbers here "15335 is the no of rows in filterMedian; "30" is the number of columns. 
+#
+colnotzero<-rep(0,15335)
+colprop<-rep(0,15335)
+for(i in 1:15335) {
+  ctr<-0
+  for(j in 1:30) {
+    if(filterMedian[i,j] > 0) ctr=ctr+1
+  }
+  colnotzero[i]<-ctr
+  colprop[i]<-colnotzero[i]/30.0
+}
+colprop<-data.frame(colprop)
+filterMediancolprop<-cbind(filterMedian,colprop)
+filtercolprop<-filter(filterMediancolprop,colprop>0.25)
+filteredData<-subset(filtercolprop,select=-c(colprop))
+#
+#Merging based on Geneid
+#
+library(data.table)
+filteredData<-setDT(filteredData,keep.rownames = TRUE)
+filteredData<-rename(filteredData,Geneid=rn)
+merged<-merge(filteredData,combined_counts[c("Geneid","Length")],by="Geneid")
+#
+##### Change the name of the column for relocation
+#
+####### this will change based on your data. Change the before file name to whatever is the first sample data column in your data
+#
+rearranged<-relocate(merged,"Length", .before = "SM-56hAV-015-F-1_S47_L001_sorted.bam")
+Datafornormalization<-rearranged
+View(Datafornormalization)
+#Datafornormalization includes Geneid and Length
+#
+# GeTMM and lib normalization from GeTMM paper
+#
+#The raw readcount matrix (tab-delimited text file) was used, in which the first column 
+#holds the geneID from Ensembl that are used as row names in data matrix (x) in R, the second column 
+#of the text file (thus the first column in x) 
+#holds the gene length in kb and the remaining columns contain read counts of each sample.
+# calculate RPK
+#Export Datafornormalization file to csv and reimport before doing to steps after this.
+#After import remove the first column.
+write.csv(Datafornormalization,file="Datafornormalization_May_21_SM.csv")
+#Import using R Studio GUI
+Datafornormalization<-as.data.frame(Datafornormalization_May_21_SM)
+Datafornorm_fixed<-Datafornormalization[,-1]
+Datafornorm_fixed<-Datafornorm_fixed
+row.names(Datafornorm_fixed)<-Datafornorm_fixed[,1]
+x<-Datafornorm_fixed[,-1]
+View(x)
+#
+rpk <- (x[,2:ncol(x)]/x[,1])
+# remove length col in x
+x <- x[,-1]
+# for normalization purposes, no grouping of samples
+group <- c(rep("A",ncol(x)))
+#
+#GeTMM
+rpk.norm <- DGEList(counts=rpk,group=group)
+rpk.norm <- calcNormFactors(rpk.norm)
+norm.counts.rpk_edger <- cpm(rpk.norm)
+## name your output file as whatever you want
+write.csv(norm.counts.rpk_edger,file="norm_counts_May_21_SM.csv")
+# Transpose in Excel and then do pivot longer as below. 
+# 
+norm_counts_transposed<-as.data.frame(norm_counts_May_21_SM)
+library(tidyr)
+norm_transp_counts_RNAseq56hav_full_K<-norm_counts_transposed
+norm_counts_forSAS_RNAseq56hav_full_K<-pivot_longer(norm_transp_counts_RNAseq56hav_full_K,cols=starts_with("FBgn"),names_to = "Flybase_id",values_to = "norm_counts")
+write.csv(norm_counts_forSAS_RNAseq56hav_full_K,file="norm_counts_forSAS_RNAseq56hav_May_21_SM.csv")
+# Make additional columns for Sex and replicate in Excel using Text to Columns. 
+#after that ready for SAS GLM
+#
+################## End of R steps ##############################
+#
+###################### SAS Steps ########################################
+%web_drop_table(WORK.RNAseq_full);
+
+
+FILENAME REFFILE '/home/smokash/RNAseq_May_21_SM/norm_counts_forSAS_RNAseq56hav_May_21_SM.csv';
+
+PROC IMPORT DATAFILE=REFFILE
+	DBMS=CSV
+	OUT=WORK.RNAseq_full;
+	GETNAMES=YES;
+RUN;
+
+PROC CONTENTS DATA=WORK.RNAseq_full; RUN;
+
+
+%web_open_table(WORK.RNAseq_full);
+
+proc sort data=WORK.RNASEQ_FULL out=WORK.sort_RNAseq_full equals;
+	by Flybase_id;
+run;
+
+proc template;
+ edit stat.GLM.Contrasts; edit ProbF; format = d10.10;
+end;end;
+run;
+options nonotes;
+ods noproctitle;
+ods graphics / imagemap=off;
+ods output FitStatistics=FS_glm;
+ods output LSMeans=LSMeans_glm;
+ods output ClassLevels= ClassLevels_glm;
+ods output NObs= NObs_glm;
+ods output OverallANOVA= OverallANOVA_glm;
+ods output ModelANOVA= ModelANOVA_glm;
+ods output SlicedANOVA= SlicedANOVA_glm;
+ods output Contrasts=Contrasts_glm;
+
+proc glm data=Work.SORT_RNASEQ_FULL plots=none;
+ class Genotype Sex;
+ model norm_counts = Genotype|Sex;
+ by Flybase_id;
+ lsmeans Genotype*Sex / slice= Sex;
+ 
+ contrast 'CSB vs Obp56h_KO female' Genotype 0 0 0 0 0 1 -1 Genotype*Sex 0 0 0 0 0 0 0 0 0 0 1 0 -1 0;
+ contrast 'CSB vs AV015 female' Genotype -1 0 0 0 0 1 0 Genotype*Sex -1 0 0 0 0 0 0 0 0 0 1 0 0 0;
+ contrast 'CSB vs AV118 female' Genotype 0 -1 0 0 0 1 0 Genotype*Sex  0 0 -1 0 0 0 0 0 0 0 1 0 0 0;
+ contrast 'CSB vs AV354 female' Genotype 0 0 -1 0 0 1 0 Genotype*Sex 0 0 0 0 -1 0 0 0 0 0 1 0 0 0;
+ contrast 'CSB vs K_752 female' Genotype 0 0 0 -1 0 1 0 Genotype*Sex 0 0 0 0 0 0 -1 0 0 0 1 0 0 0;
+ contrast 'CSB vs O_687 female' Genotype 0 0 0 0 -1 1 0 Genotype*Sex 0 0 0 0 0 0 0 0 -1 0 1 0 0 0;
+ 
+ contrast 'CSB vs Obp56h_KO male' Genotype 0 0 0 0 0 1 -1 Genotype*Sex 0 0 0 0 0 0 0 0 0 0 0 1 0 -1;
+ contrast 'CSB vs AV015 male' Genotype -1 0 0 0 0 1 0 Genotype*Sex 0 -1 0 0 0 0 0 0 0 0 0 1 0 0;
+ contrast 'CSB vs AV118 male' Genotype  0 -1 0 0 0 1 0 Genotype*Sex  0 0 0 -1 0 0 0 0 0 0 0 1 0 0;
+ contrast 'CSB vs AV354 male' Genotype 0 0 -1 0 0 1 0 Genotype*Sex 0 0 0 0 0 -1 0 0 0 0 0 1 0 0;
+ contrast 'CSB vs K_752 male' Genotype 0 0 0 -1 0 1 0 Genotype*Sex 0 0 0 0 0 0 0 -1 0 0 0 1 0 0;
+ contrast 'CSB vs O_687 male' Genotype 0 0 0 0 -1 1 0 Genotype*Sex 0 0 0 0 0 0 0 0 0 -1 0 1 0 0;
+
+
+ contrast 'Obp56h_KO vs CSB female' Genotype 0 0 0 0 0 -1 1 Genotype*Sex 0 0 0 0 0 0 0 0 0 0 -1 0 1 0;
+ contrast 'Obp56h_KO vs AV015 female' Genotype -1 0 0 0 0 0 1 Genotype*Sex -1 0 0 0 0 0 0 0 0 0 0 0 1 0;
+ contrast 'Obp56h_KO vs AV118 female' Genotype 0 -1 0 0 0 0 1 Genotype*Sex  0 0 -1 0 0 0 0 0 0 0 0 0 1 0;
+ contrast 'Obp56h_KO vs AV354 female' Genotype 0 0 -1 0 0 0 1 Genotype*Sex 0 0 0 0 -1 0 0 0 0 0 0 0 1 0;
+ contrast 'Obp56h_KO vs K_752 female' Genotype 0 0 0 -1 0 0 1 Genotype*Sex 0 0 0 0 0 0 -1 0 0 0 0 0 1 0 ;
+ contrast 'Obp56h_KO vs O_687 female' Genotype 0 0 0 0 -1 0 1 Genotype*Sex 0 0 0 0 0 0 0 0 -1 0 0 0 1 0;
+ 
+ contrast 'Obp56h_KO vs CSB male' Genotype 0 0 0 0 0 -1 1 Genotype*Sex 0 0 0 0 0 0 0 0 0 0 0 -1 0 1;
+ contrast 'Obp56h_KO vs AV015 male' Genotype -1 0 0 0 0 0 1 Genotype*Sex 0-1 0 0 0 0 0 0 0 0 0 0 0 1;
+ contrast 'Obp56h_KO vs AV118 male' Genotype 0 -1 0 0 0 0 1 Genotype*Sex  0 0 0 -1 0 0 0 0 0 0 0 0 0 1;
+ contrast 'Obp56h_KO vs AV354 male' Genotype 0 0 -1 0 0 0 1 Genotype*Sex 0 0 0 0 0 -1 0 0 0 0 0 0 0 1;
+ contrast 'Obp56h_KO vs K_752 male' Genotype 0 0 0 -1 0 0 1 Genotype*Sex 0 0 0 0 0 0 0 -1 0 0 0 0 0 1;
+ contrast 'Obp56h_KO vs O_687 male' Genotype 0 0 0 0 -1 0 1 Genotype*Sex 0 0 0 0 0 0 0 0 0 -1 0 0 0 1;
+
+
+ contrast 'AV015 vs AV118 female' Genotype 1 -1 0 0 0 0 0 Genotype*Sex 1 0 -1 0 0 0 0 0 0 0 0 0 0 0;
+ contrast 'AV015 vs AV354 female' Genotype 1 0 -1 0 0 0 0 Genotype*Sex 1 0 0 0 -1 0 0 0 0 0 0 0 0 0;
+ contrast 'AV015 vs K_752 female' Genotype 1 0 0 -1 0 0 0 Genotype*Sex 1 0 0 0 0 0 -1 0 0 0 0 0 0 0;
+ contrast 'AV015 vs O_687 female' Genotype 1 0 0 0 -1 0 0 Genotype*Sex 1 0 0 0 0 0 0 0 -1 0 0 0 0 0;
+ contrast 'AV118 vs AV354 female' Genotype 0 1 -1 0 0 0 0 Genotype*Sex 0 0 1 0 -1 0 0 0 0 0 0 0 0 0;
+ contrast 'AV118 vs K_752 female' Genotype 0 1 0 -1 0 0 0 Genotype*Sex 0 0 1 0 0 0 -1 0 0 0 0 0 0 0;
+ contrast 'AV118 vs O_687 female' Genotype 0 1 0 0 -1 0 0 Genotype*Sex 0 0 1 0 0 0 0 0 -1 0 0 0 0 0;
+ contrast 'AV354 vs K_752 female' Genotype 0 0 1 -1 0 0 0 Genotype*Sex 0 0 0 0 1 0 -1 0 0 0 0 0 0 0;
+ contrast 'AV354 vs O_687 female' Genotype 0 0 1 0 -1 0 0 Genotype*Sex 0 0 0 0 1 0 0 0 -1 0 0 0 0 0;
+ contrast 'K_752 vs O_687 female' Genotype 0 0 0 1 -1 0 0 Genotype*Sex 0 0 0 0 0 0 1 0 -1 0 0 0 0 0;
+
+ contrast 'AV015 vs AV118 male' Genotype 1 -1 0 0 0 0 0 Genotype*Sex 0 1 0 -1 0 0 0 0 0 0 0 0 0 0;
+ contrast 'AV015 vs AV354 male' Genotype 1 0 -1 0 0 0 0 Genotype*Sex 0 1 0 0 0 -1 0 0 0 0 0 0 0 0;
+ contrast 'AV015 vs K_752 male' Genotype 1 0 0 -1 0 0 0 Genotype*Sex 0 1 0 0 0 0 0 -1 0 0 0 0 0 0;
+ contrast 'AV015 vs O_687 male' Genotype 1 0 0 0 -1 0 0 Genotype*Sex 0 1 0 0 0 0 0 0 0 -1 0 0 0 0;
+ contrast 'AV118 vs AV354 male' Genotype 0 1 -1 0 0 0 0 Genotype*Sex 0 0 0 1 0 -1 0 0 0 0 0 0 0 0;
+ contrast 'AV118 vs K_752 male' Genotype 0 1 0 -1 0 0 0 Genotype*Sex 0 0 0 1 0 0 0 -1 0 0 0 0 0 0;
+ contrast 'AV118 vs O_687 male' Genotype 0 1 0 0 -1 0 0 Genotype*Sex 0 0 0 1 0 0 0 0 0 -1 0 0 0 0;
+ contrast 'AV354 vs K_752 male' Genotype 0 0 1 -1 0 0 0 Genotype*Sex 0 0 0 0 0 1 0 -1 0 0 0 0 0 0;
+ contrast 'AV354 vs O_687 male' Genotype 0 0 1 0 -1 0 0 Genotype*Sex 0 0 0 0 0 1 0 0 0 -1 0 0 0 0;
+ contrast 'K_752 vs O_687 male' Genotype 0 0 0 1 -1 0 0 Genotype*Sex 0 0 0 0 0 0 0 1 0 -1 0 0 0 0;
+
+ run;
+ 
+###################### End of SAS steps ###########################
+
+########### R code for Sliced ANOVA FDR adjustment,sexes separately #########
+#
+library(dplyr)
+SA_Female<-as.data.frame(SlicedANOVA_female_May_21_SM)
+SA_male<-as.data.frame(SlicedANOVA_male_May_21_SM)
+#
+# adjusting p values using FDR
+#
+FDR_adj_p_val_female<-p.adjust(SA_Female$ProbF,method="fdr")
+FDR_adj_p_val_male<-p.adjust(SA_male$ProbF,method="fdr")
+#
+#
+# combining FDR adj vectors with the original dataframes
+#
+write.csv(FDR_adj_f<-cbind(SA_Female,FDR_adj_p_val_female),file = "SlicedANOVA_female_FDR.csv")
+write.csv(FDR_adj_m<-cbind(SA_male,FDR_adj_p_val_male),file = "SlicedANOVA_male_FDR.csv")
+#
+################################################################
+#
+############ R code post GLM for FDR adjustment##################
+library(dplyr)
+contrasts_full<-as.data.frame(CONTRASTS_GLM)
+#
+#splitting full contrasts dataframe into the individual contrasts
+#
+grp_contrasts_split<-contrasts_full%>% group_by(contrasts_full$Source,.add=TRUE) %>% group_split(contrasts_full$Source)
+indiv_contrast_1<-grp_contrasts_split[[1]]
+indiv_contrast_2<-grp_contrasts_split[[2]]
+indiv_contrast_3<-grp_contrasts_split[[3]]
+indiv_contrast_4<-grp_contrasts_split[[4]]
+indiv_contrast_5<-grp_contrasts_split[[5]]
+indiv_contrast_6<-grp_contrasts_split[[6]]
+indiv_contrast_7<-grp_contrasts_split[[7]]
+indiv_contrast_8<-grp_contrasts_split[[8]]
+indiv_contrast_9<-grp_contrasts_split[[9]]
+indiv_contrast_10<-grp_contrasts_split[[10]]
+
+indiv_contrast_11<-grp_contrasts_split[[11]]
+indiv_contrast_12<-grp_contrasts_split[[12]]
+indiv_contrast_13<-grp_contrasts_split[[13]]
+indiv_contrast_14<-grp_contrasts_split[[14]]
+indiv_contrast_15<-grp_contrasts_split[[15]]
+indiv_contrast_16<-grp_contrasts_split[[16]]
+indiv_contrast_17<-grp_contrasts_split[[17]]
+indiv_contrast_18<-grp_contrasts_split[[18]]
+indiv_contrast_19<-grp_contrasts_split[[19]]
+indiv_contrast_20<-grp_contrasts_split[[20]]
+
+indiv_contrast_21<-grp_contrasts_split[[21]]
+indiv_contrast_22<-grp_contrasts_split[[22]]
+indiv_contrast_23<-grp_contrasts_split[[23]]
+indiv_contrast_24<-grp_contrasts_split[[24]]
+indiv_contrast_25<-grp_contrasts_split[[25]]
+indiv_contrast_26<-grp_contrasts_split[[26]]
+indiv_contrast_27<-grp_contrasts_split[[27]]
+indiv_contrast_28<-grp_contrasts_split[[28]]
+indiv_contrast_29<-grp_contrasts_split[[29]]
+indiv_contrast_30<-grp_contrasts_split[[30]]
+
+indiv_contrast_31<-grp_contrasts_split[[31]]
+indiv_contrast_32<-grp_contrasts_split[[32]]
+indiv_contrast_33<-grp_contrasts_split[[33]]
+indiv_contrast_34<-grp_contrasts_split[[34]]
+indiv_contrast_35<-grp_contrasts_split[[35]]
+indiv_contrast_36<-grp_contrasts_split[[36]]
+indiv_contrast_37<-grp_contrasts_split[[37]]
+indiv_contrast_38<-grp_contrasts_split[[38]]
+indiv_contrast_39<-grp_contrasts_split[[39]]
+indiv_contrast_40<-grp_contrasts_split[[40]]
+
+indiv_contrast_41<-grp_contrasts_split[[41]]
+indiv_contrast_42<-grp_contrasts_split[[42]]
+indiv_contrast_43<-grp_contrasts_split[[43]]
+indiv_contrast_44<-grp_contrasts_split[[44]]
+
+# adjusting p values using FDR
+#
+padj_indiv_c_1<-p.adjust(indiv_contrast_1$ProbF,method="fdr")
+padj_indiv_c_2<-p.adjust(indiv_contrast_2$ProbF,method="fdr")
+padj_indiv_c_3<-p.adjust(indiv_contrast_3$ProbF,method="fdr")
+padj_indiv_c_4<-p.adjust(indiv_contrast_4$ProbF,method="fdr")
+padj_indiv_c_5<-p.adjust(indiv_contrast_5$ProbF,method="fdr")
+padj_indiv_c_6<-p.adjust(indiv_contrast_6$ProbF,method="fdr")
+padj_indiv_c_7<-p.adjust(indiv_contrast_7$ProbF,method="fdr")
+padj_indiv_c_8<-p.adjust(indiv_contrast_8$ProbF,method="fdr")
+padj_indiv_c_9<-p.adjust(indiv_contrast_9$ProbF,method="fdr")
+padj_indiv_c_10<-p.adjust(indiv_contrast_10$ProbF,method="fdr")
+
+padj_indiv_c_11<-p.adjust(indiv_contrast_11$ProbF,method="fdr")
+padj_indiv_c_12<-p.adjust(indiv_contrast_12$ProbF,method="fdr")
+padj_indiv_c_13<-p.adjust(indiv_contrast_13$ProbF,method="fdr")
+padj_indiv_c_14<-p.adjust(indiv_contrast_14$ProbF,method="fdr")
+padj_indiv_c_15<-p.adjust(indiv_contrast_15$ProbF,method="fdr")
+padj_indiv_c_16<-p.adjust(indiv_contrast_16$ProbF,method="fdr")
+padj_indiv_c_17<-p.adjust(indiv_contrast_17$ProbF,method="fdr")
+padj_indiv_c_18<-p.adjust(indiv_contrast_18$ProbF,method="fdr")
+padj_indiv_c_19<-p.adjust(indiv_contrast_19$ProbF,method="fdr")
+padj_indiv_c_20<-p.adjust(indiv_contrast_20$ProbF,method="fdr")
+
+padj_indiv_c_21<-p.adjust(indiv_contrast_21$ProbF,method="fdr")
+padj_indiv_c_22<-p.adjust(indiv_contrast_22$ProbF,method="fdr")
+padj_indiv_c_23<-p.adjust(indiv_contrast_23$ProbF,method="fdr")
+padj_indiv_c_24<-p.adjust(indiv_contrast_24$ProbF,method="fdr")
+padj_indiv_c_25<-p.adjust(indiv_contrast_25$ProbF,method="fdr")
+padj_indiv_c_26<-p.adjust(indiv_contrast_26$ProbF,method="fdr")
+padj_indiv_c_27<-p.adjust(indiv_contrast_27$ProbF,method="fdr")
+padj_indiv_c_28<-p.adjust(indiv_contrast_28$ProbF,method="fdr")
+padj_indiv_c_29<-p.adjust(indiv_contrast_29$ProbF,method="fdr")
+padj_indiv_c_30<-p.adjust(indiv_contrast_30$ProbF,method="fdr")
+
+padj_indiv_c_31<-p.adjust(indiv_contrast_31$ProbF,method="fdr")
+padj_indiv_c_32<-p.adjust(indiv_contrast_32$ProbF,method="fdr")
+padj_indiv_c_33<-p.adjust(indiv_contrast_33$ProbF,method="fdr")
+padj_indiv_c_34<-p.adjust(indiv_contrast_34$ProbF,method="fdr")
+padj_indiv_c_35<-p.adjust(indiv_contrast_35$ProbF,method="fdr")
+padj_indiv_c_36<-p.adjust(indiv_contrast_36$ProbF,method="fdr")
+padj_indiv_c_37<-p.adjust(indiv_contrast_37$ProbF,method="fdr")
+padj_indiv_c_38<-p.adjust(indiv_contrast_38$ProbF,method="fdr")
+padj_indiv_c_39<-p.adjust(indiv_contrast_39$ProbF,method="fdr")
+padj_indiv_c_40<-p.adjust(indiv_contrast_40$ProbF,method="fdr")
+
+padj_indiv_c_41<-p.adjust(indiv_contrast_41$ProbF,method="fdr")
+padj_indiv_c_42<-p.adjust(indiv_contrast_42$ProbF,method="fdr")
+padj_indiv_c_43<-p.adjust(indiv_contrast_43$ProbF,method="fdr")
+padj_indiv_c_44<-p.adjust(indiv_contrast_44$ProbF,method="fdr")
+
+# combining p adj vectors with the indiv_contrasts dataframes to add a column of FDR adjusted p values
+#
+write.csv(indiv_contrast_1_fdr<-cbind(indiv_contrast_1,padj_indiv_c_1),file = "FDR_indiv_contrasts_1.csv")
+write.csv(indiv_contrast_2_fdr<-cbind(indiv_contrast_2,padj_indiv_c_2),file = "FDR_indiv_contrasts_2.csv")
+write.csv(indiv_contrast_3_fdr<-cbind(indiv_contrast_3,padj_indiv_c_3),file = "FDR_indiv_contrasts_3.csv")
+write.csv(indiv_contrast_4_fdr<-cbind(indiv_contrast_4,padj_indiv_c_4),file = "FDR_indiv_contrasts_4.csv")
+write.csv(indiv_contrast_5_fdr<-cbind(indiv_contrast_5,padj_indiv_c_5),file = "FDR_indiv_contrasts_5.csv")
+write.csv(indiv_contrast_6_fdr<-cbind(indiv_contrast_6,padj_indiv_c_6),file = "FDR_indiv_contrasts_6.csv")
+write.csv(indiv_contrast_7_fdr<-cbind(indiv_contrast_7,padj_indiv_c_7),file = "FDR_indiv_contrasts_7.csv")
+write.csv(indiv_contrast_8_fdr<-cbind(indiv_contrast_8,padj_indiv_c_8),file = "FDR_indiv_contrasts_8.csv")
+write.csv(indiv_contrast_9_fdr<-cbind(indiv_contrast_9,padj_indiv_c_9),file = "FDR_indiv_contrasts_9.csv")
+write.csv(indiv_contrast_10_fdr<-cbind(indiv_contrast_10,padj_indiv_c_10),file = "FDR_indiv_contrasts_10.csv")
+
+write.csv(indiv_contrast_11_fdr<-cbind(indiv_contrast_11,padj_indiv_c_11),file = "FDR_indiv_contrasts_11.csv")
+write.csv(indiv_contrast_12_fdr<-cbind(indiv_contrast_12,padj_indiv_c_12),file = "FDR_indiv_contrasts_12.csv")
+write.csv(indiv_contrast_13_fdr<-cbind(indiv_contrast_13,padj_indiv_c_13),file = "FDR_indiv_contrasts_13.csv")
+write.csv(indiv_contrast_14_fdr<-cbind(indiv_contrast_14,padj_indiv_c_14),file = "FDR_indiv_contrasts_14.csv")
+write.csv(indiv_contrast_15_fdr<-cbind(indiv_contrast_15,padj_indiv_c_15),file = "FDR_indiv_contrasts_15.csv")
+write.csv(indiv_contrast_16_fdr<-cbind(indiv_contrast_16,padj_indiv_c_16),file = "FDR_indiv_contrasts_16.csv")
+write.csv(indiv_contrast_17_fdr<-cbind(indiv_contrast_17,padj_indiv_c_17),file = "FDR_indiv_contrasts_17.csv")
+write.csv(indiv_contrast_18_fdr<-cbind(indiv_contrast_18,padj_indiv_c_18),file = "FDR_indiv_contrasts_18.csv")
+write.csv(indiv_contrast_19_fdr<-cbind(indiv_contrast_19,padj_indiv_c_19),file = "FDR_indiv_contrasts_19.csv")
+write.csv(indiv_contrast_20_fdr<-cbind(indiv_contrast_20,padj_indiv_c_20),file = "FDR_indiv_contrasts_20.csv")
+
+write.csv(indiv_contrast_21_fdr<-cbind(indiv_contrast_21,padj_indiv_c_21),file = "FDR_indiv_contrasts_21.csv")
+write.csv(indiv_contrast_22_fdr<-cbind(indiv_contrast_22,padj_indiv_c_22),file = "FDR_indiv_contrasts_22.csv")
+write.csv(indiv_contrast_23_fdr<-cbind(indiv_contrast_23,padj_indiv_c_23),file = "FDR_indiv_contrasts_23.csv")
+write.csv(indiv_contrast_24_fdr<-cbind(indiv_contrast_24,padj_indiv_c_24),file = "FDR_indiv_contrasts_24.csv")
+write.csv(indiv_contrast_25_fdr<-cbind(indiv_contrast_25,padj_indiv_c_25),file = "FDR_indiv_contrasts_25.csv")
+write.csv(indiv_contrast_26_fdr<-cbind(indiv_contrast_26,padj_indiv_c_26),file = "FDR_indiv_contrasts_26.csv")
+write.csv(indiv_contrast_27_fdr<-cbind(indiv_contrast_27,padj_indiv_c_27),file = "FDR_indiv_contrasts_27.csv")
+write.csv(indiv_contrast_28_fdr<-cbind(indiv_contrast_28,padj_indiv_c_28),file = "FDR_indiv_contrasts_28.csv")
+write.csv(indiv_contrast_29_fdr<-cbind(indiv_contrast_29,padj_indiv_c_29),file = "FDR_indiv_contrasts_29.csv")
+write.csv(indiv_contrast_30_fdr<-cbind(indiv_contrast_30,padj_indiv_c_30),file = "FDR_indiv_contrasts_30.csv")
+
+write.csv(indiv_contrast_31_fdr<-cbind(indiv_contrast_31,padj_indiv_c_31),file = "FDR_indiv_contrasts_31.csv")
+write.csv(indiv_contrast_32_fdr<-cbind(indiv_contrast_32,padj_indiv_c_32),file = "FDR_indiv_contrasts_32.csv")
+write.csv(indiv_contrast_33_fdr<-cbind(indiv_contrast_33,padj_indiv_c_33),file = "FDR_indiv_contrasts_33.csv")
+write.csv(indiv_contrast_34_fdr<-cbind(indiv_contrast_34,padj_indiv_c_34),file = "FDR_indiv_contrasts_34.csv")
+write.csv(indiv_contrast_35_fdr<-cbind(indiv_contrast_35,padj_indiv_c_35),file = "FDR_indiv_contrasts_35.csv")
+write.csv(indiv_contrast_36_fdr<-cbind(indiv_contrast_36,padj_indiv_c_36),file = "FDR_indiv_contrasts_36.csv")
+write.csv(indiv_contrast_37_fdr<-cbind(indiv_contrast_37,padj_indiv_c_37),file = "FDR_indiv_contrasts_37.csv")
+write.csv(indiv_contrast_38_fdr<-cbind(indiv_contrast_38,padj_indiv_c_38),file = "FDR_indiv_contrasts_38.csv")
+write.csv(indiv_contrast_39_fdr<-cbind(indiv_contrast_39,padj_indiv_c_39),file = "FDR_indiv_contrasts_39.csv")
+write.csv(indiv_contrast_40_fdr<-cbind(indiv_contrast_40,padj_indiv_c_40),file = "FDR_indiv_contrasts_40.csv")
+
+write.csv(indiv_contrast_41_fdr<-cbind(indiv_contrast_41,padj_indiv_c_41),file = "FDR_indiv_contrasts_41.csv")
+write.csv(indiv_contrast_42_fdr<-cbind(indiv_contrast_42,padj_indiv_c_42),file = "FDR_indiv_contrasts_42.csv")
+write.csv(indiv_contrast_43_fdr<-cbind(indiv_contrast_43,padj_indiv_c_43),file = "FDR_indiv_contrasts_43.csv")
+write.csv(indiv_contrast_44_fdr<-cbind(indiv_contrast_44,padj_indiv_c_44),file = "FDR_indiv_contrasts_44.csv")
+
+########################## End of R steps ##############################
+
+
+
